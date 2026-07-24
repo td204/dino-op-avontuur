@@ -27,7 +27,7 @@
   #btnM{position:fixed;top:10px;right:10px;z-index:11;font-size:26px;background:rgba(255,255,255,.8);
     border:3px solid #444;border-radius:12px;padding:4px 10px;cursor:pointer;
     font-family:inherit;}
-  body.touch .tbtn{display:flex;}
+  body.touch.playing .tbtn{display:flex;}
 </style>
 </head>
 <body>
@@ -203,9 +203,16 @@ function gotCount(){ return items.filter(i=>i.got).length; }
 /* ============================ INPUT ============================ */
 function press(k){ keys[k]=true; }
 function release(k){ keys[k]=false; }
-function actionTap(){
+/* knoppen op het titelscherm */
+const BTN_START={x:W/2-130,y:382,w:260,h:72};
+const BTN_CRED ={x:W-206,y:H-64,w:186,h:50};
+const inRect=(x,y,r)=>x>=r.x&&x<=r.x+r.w&&y>=r.y&&y<=r.y+r.h;
+function actionTap(x,y){
   ensureAudio();
-  if(state==='title'){ huisStage=0; startLevel(0); }
+  if(state==='title'){
+    if(x===undefined || inRect(x,y,BTN_START)){ huisStage=0; startLevel(0); }
+    else if(inRect(x,y,BTN_CRED)){ state='credits'; }
+  }
   else if(state==='build' && buildDone){
     if(huisStage>=4){ state='final'; finalT=0; confetti=[]; playTune('feest'); sfxFanfare(true); }
     else startLevel(li+1);
@@ -227,7 +234,12 @@ window.addEventListener('keyup',e=>{
   if(e.code==='ArrowRight'||e.code==='KeyD') release('R');
   if(e.code==='ArrowUp'||e.code==='KeyW'||e.code==='Space') release('J');
 });
-cv.addEventListener('pointerdown',()=>{ ensureAudio(); if(state!=='play') actionTap(); });
+cv.addEventListener('pointerdown',e=>{
+  ensureAudio();
+  if(state==='play') return;
+  const r=cv.getBoundingClientRect();
+  actionTap((e.clientX-r.left)*W/r.width,(e.clientY-r.top)*H/r.height);
+});
 if('ontouchstart' in window) document.body.classList.add('touch');
 function bindBtn(id,k){
   const el=document.getElementById(id);
@@ -672,10 +684,22 @@ function scnTitle(){
     ctx.fillText('ik dino in',0,-12); ctx.fillText('mooi huis!',0,8);
   });
   drawHuis(620,GROUND,0.95,0,{});
-  fontT(30,true); ctx.fillStyle='#d93025'; ctx.textAlign='center';
-  if(Math.sin(T*4)>-0.3) ctx.fillText('Druk op SPATIE of tik om te starten!',W/2,H-24);
-  fontT(17,false); ctx.fillStyle='#666';
-  ctx.fillText('lopen: ← → of A/D  ·  springen: SPATIE of ↑  ·  muziek: M',W/2,GROUND+34);
+  /* grote SPELEN-knop */
+  const wip=1+Math.sin(T*3)*0.03;
+  ctx.save(); ctx.translate(BTN_START.x+BTN_START.w/2,BTN_START.y+BTN_START.h/2); ctx.scale(wip,wip);
+  ctx.fillStyle='#d93025'; ctx.strokeStyle='#fff'; ctx.lineWidth=5;
+  ctx.beginPath(); ctx.roundRect(-BTN_START.w/2,-BTN_START.h/2,BTN_START.w,BTN_START.h,24);
+  ctx.fill(); ctx.stroke();
+  ctx.strokeStyle=C.lijn; ctx.lineWidth=2.5;
+  ctx.beginPath(); ctx.roundRect(-BTN_START.w/2,-BTN_START.h/2,BTN_START.w,BTN_START.h,24); ctx.stroke();
+  fontT(38,true); ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText('▶ SPELEN',0,2); ctx.restore();
+  /* credits-knop */
+  ctx.fillStyle='rgba(255,255,255,.92)'; ctx.strokeStyle=C.lijn; ctx.lineWidth=2.5;
+  ctx.beginPath(); ctx.roundRect(BTN_CRED.x,BTN_CRED.y,BTN_CRED.w,BTN_CRED.h,16); ctx.fill(); ctx.stroke();
+  fontT(24,true); ctx.fillStyle='#2a5db0'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText('⭐ credits',BTN_CRED.x+BTN_CRED.w/2,BTN_CRED.y+BTN_CRED.h/2+1);
+  ctx.textBaseline='alphabetic';
 }
 function scnPlay(){
   const L=LEVELS[li];
@@ -710,7 +734,7 @@ function scnBuild(){
     ctx.fillText(msg,W/2,90);
     fontT(24,false); ctx.fillStyle='#333';
     if(Math.sin(T*4)>-0.3)
-      ctx.fillText(huisStage>=4?'Druk op SPATIE voor het grote feest!':'Druk op SPATIE voor het volgende level!',W/2,135);
+      ctx.fillText(huisStage>=4?'Tik op het scherm voor het grote feest!':'Tik op het scherm voor het volgende level!',W/2,135);
     /* glinstertjes */
     for(let i=0;i<8;i++){ const a=T*2+i, gx=520+130+Math.cos(a)*180, gy=GROUND-190+Math.sin(a*1.3)*130;
       ctx.strokeStyle='#ffd93d'; ctx.lineWidth=3;
@@ -743,7 +767,7 @@ function scnFinal(){
   fontT(26,true); ctx.fillStyle='#2a5db0';
   ctx.fillText('Dino woont nu in zijn mooie huis 🧡',W/2,150);
   if(finalT>2){ fontT(22,false); ctx.fillStyle='#333';
-    if(Math.sin(T*4)>-0.3) ctx.fillText('Druk op SPATIE voor de aftiteling',W/2,H-20); }
+    if(Math.sin(T*4)>-0.3) ctx.fillText('Tik op het scherm voor de aftiteling',W/2,H-20); }
 }
 let tekImg=null, tekOk=false;
 (function(){ tekImg=new Image(); tekImg.onload=()=>tekOk=true; tekImg.src='tekening-dex.jpg'; })();
@@ -773,13 +797,14 @@ function scnCredits(){
     drawHuis(W/2+30,H-60,0.55,4,{bloemen:true});
   }
   fontT(22,true); ctx.fillStyle='#2a5db0';
-  if(Math.sin(T*4)>-0.3) ctx.fillText('Druk op SPATIE om nog een keer te spelen!',W/2,H-16);
+  if(Math.sin(T*4)>-0.3) ctx.fillText('Tik op het scherm om terug te gaan!',W/2,H-16);
 }
 
 /* ============================ LOOP ============================ */
 let last=0;
 function frame(ts){
   const dt=Math.min(0.05,(ts-last)/1000||0.016); last=ts;
+  document.body.classList.toggle('playing',state==='play');
   update(dt);
   ctx.clearRect(0,0,W,H);
   if(state==='title') scnTitle();

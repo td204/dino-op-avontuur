@@ -1,5 +1,5 @@
 /* Service worker: Dino op Avontuur werkt ook offline */
-const CACHE = 'dino-op-avontuur-v1';
+const CACHE = 'dino-op-avontuur-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -21,6 +21,19 @@ self.addEventListener('activate', e => {
 });
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
+  const isPage = e.request.mode === 'navigate' || e.request.url.endsWith('/index.html');
+  if (isPage) {
+    /* pagina: eerst netwerk (zodat updates aankomen), anders cache */
+    e.respondWith(
+      fetch(e.request).then(res => {
+        const copy = res.clone();
+        caches.open(CACHE).then(c => c.put(e.request, copy));
+        return res;
+      }).catch(() => caches.match(e.request, { ignoreSearch: true })
+        .then(hit => hit || caches.match('./index.html')))
+    );
+    return;
+  }
   e.respondWith(
     caches.match(e.request, { ignoreSearch: true }).then(hit =>
       hit ||

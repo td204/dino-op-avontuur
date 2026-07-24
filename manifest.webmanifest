@@ -1,0 +1,17 @@
+{
+  "name": "Dino op Avontuur",
+  "short_name": "Dino",
+  "description": "Help Dino zijn mooie huis te bouwen! Bedacht en getekend door Dex (6 jaar).",
+  "lang": "nl",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#a8e4ff",
+  "theme_color": "#a8e4ff",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

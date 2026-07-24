@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <title>Dino op Avontuur — door Dex (6)</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#a8e4ff">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Dino">
 <style>
   html,body{margin:0;padding:0;background:#7a5a3a;height:100%;overflow:hidden;
     font-family:"Comic Sans MS","Chalkboard SE","Comic Neue",cursive,sans-serif;
@@ -783,6 +791,10 @@ function frame(ts){
 }
 playTune('titel');   /* start zodra er geklikt/gedrukt wordt */
 requestAnimationFrame(frame);
+/* PWA: offline spelen & installeren als app */
+if('serviceWorker' in navigator){
+  try{ navigator.serviceWorker.register('./sw.js').catch(()=>{}); }catch(e){}
+}
 </script>
 </body>
 </html>

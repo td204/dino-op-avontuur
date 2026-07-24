@@ -1,5 +1,5 @@
 /* Service worker: Dino op Avontuur werkt ook offline */
-const CACHE = 'dino-op-avontuur-v2';
+const CACHE = 'dino-op-avontuur-v3';
 const ASSETS = [
   './',
   './index.html',

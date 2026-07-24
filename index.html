@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Dino op Avontuur — door Dex (6)</title>
+<style>
+  html,body{margin:0;padding:0;background:#7a5a3a;height:100%;overflow:hidden;
+    font-family:"Comic Sans MS","Chalkboard SE","Comic Neue",cursive,sans-serif;
+    -webkit-user-select:none;user-select:none;touch-action:none;}
+  #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;}
+  canvas{background:#fdfdf5;box-shadow:0 0 40px rgba(0,0,0,.5);border-radius:6px;}
+  .tbtn{position:fixed;bottom:4vh;width:16vmin;height:16vmin;min-width:64px;min-height:64px;
+    border-radius:50%;background:rgba(255,255,255,.75);border:4px solid #444;
+    font-size:8vmin;display:none;align-items:center;justify-content:center;
+    z-index:10;color:#333;}
+  .tbtn:active{background:#ffe066;}
+  #btnL{left:4vw;} #btnR{left:calc(4vw + 18vmin + 12px);} #btnJ{right:4vw;}
+  #btnM{position:fixed;top:10px;right:10px;z-index:11;font-size:26px;background:rgba(255,255,255,.8);
+    border:3px solid #444;border-radius:12px;padding:4px 10px;cursor:pointer;
+    font-family:inherit;}
+  body.touch .tbtn{display:flex;}
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="c" width="960" height="540"></canvas></div>
+<div class="tbtn" id="btnL">◀</div>
+<div class="tbtn" id="btnR">▶</div>
+<div class="tbtn" id="btnJ">⬆</div>
+<button id="btnM" title="Muziek aan/uit (M)">🎵</button>
+<script>
+'use strict';
+/* ============================================================
+   DINO OP AVONTUUR
+   Bedacht & getekend door Dex (6 jaar) — "ik dino in mooi huis!"
+   ============================================================ */
+const W=960, H=540, GROUND=470;
+const cv=document.getElementById('c'), ctx=cv.getContext('2d');
+
+function fitCanvas(){
+  const s=Math.min(window.innerWidth/W, window.innerHeight/H)*0.98;
+  cv.style.width=(W*s)+'px'; cv.style.height=(H*s)+'px';
+}
+window.addEventListener('resize',fitCanvas); fitCanvas();
+
+/* ---------- kleuren van Dex' tekening ---------- */
+const C={
+  dinoGroen:'#5cb52a', dinoGroenD:'#3f8c1a',
+  stekelBruin:'#8a5a2b', huid:'#d99a56',
+  shirtRood:'#d93025', shirtWit:'#ffffff',
+  huisOranje:'#f39c1f', dakRood:'#e03020',
+  potlood:'rgba(80,80,80,.75)', lijn:'rgba(60,60,60,.8)',
+  gras:'#7ec850', grasD:'#4f9a30'
+};
+
+/* ============================ AUDIO ============================ */
+let AC=null, musicGain=null, sfxGain=null, musicOn=true, pendingTune=null,
+    tuneTimer=null, curTune=null;
+function ensureAudio(){
+  if(!AC){
+    AC=new (window.AudioContext||window.webkitAudioContext)();
+    musicGain=AC.createGain(); musicGain.gain.value=musicOn?0.16:0; musicGain.connect(AC.destination);
+    sfxGain=AC.createGain(); sfxGain.gain.value=0.3; sfxGain.connect(AC.destination);
+  }
+  if(AC.state==='suspended') AC.resume();
+  if(pendingTune){ const t=pendingTune; pendingTune=null; playTune(t); }
+}
+const fq=m=>440*Math.pow(2,(m-69)/12);
+function tone(m,t,dur,wave,dest,vol){
+  const o=AC.createOscillator(), g=AC.createGain();
+  o.type=wave; o.frequency.value=fq(m);
+  g.gain.setValueAtTime(0,t);
+  g.gain.linearRampToValueAtTime(vol,t+0.015);
+  g.gain.setValueAtTime(vol,t+dur*0.6);
+  g.gain.linearRampToValueAtTime(0.0001,t+dur);
+  o.connect(g); g.connect(dest);
+  o.start(t); o.stop(t+dur+0.05);
+}
+/* --- muziekjes: elk level zijn eigen deuntje (chiptune) --- */
+const TUNES={
+  titel:{bpm:132,wave:'square',vol:.5,
+    mel:[[72,.5],[76,.5],[79,.5],[84,.5],[79,.5],[76,.5],[72,1],[74,.5],[77,.5],[81,.5],[77,.5],[74,1],[76,.5],[79,.5],[83,.5],[79,.5],[76,1],[72,.5],[74,.5],[76,.5],[74,.5],[72,1.5]],
+    bass:[[48,2],[43,2],[45,2],[41,2],[48,2],[43,2],[41,2],[43,2]]},
+  weide:{bpm:144,wave:'square',vol:.45,
+    mel:[[76,.5],[79,.5],[81,.5],[84,.5],[81,.5],[79,.5],[76,.5],[74,.5],[72,.5],[74,.5],[76,.5],[79,.5],[76,.5],[74,.5],[72,1]],
+    bass:[[48,1],[55,1],[45,1],[52,1],[41,1],[48,1],[43,1],[43,1]]},
+  bos:{bpm:116,wave:'sawtooth',vol:.28,
+    mel:[[69,.75],[72,.25],[74,1],[76,.75],[74,.25],[72,1],[69,.75],[72,.25],[76,1],[74,.5],[72,.5],[69,2]],
+    bass:[[45,1],[45,1],[41,1],[41,1],[43,1],[43,1],[40,1],[43,1]]},
+  rivier:{bpm:100,wave:'triangle',vol:.6,
+    mel:[[76,1],[79,1],[83,1.5],[84,.5],[83,1],[79,1],[76,2],[74,1],[77,1],[81,1.5],[83,.5],[81,1],[77,1],[76,2]],
+    bass:[[48,2],[52,2],[45,2],[50,2],[48,2],[52,2],[41,2],[43,2]]},
+  berg:{bpm:126,wave:'square',vol:.45,
+    mel:[[67,.5],[67,.5],[71,.5],[74,.5],[71,.5],[74,.5],[79,1],[76,.5],[74,.5],[71,.5],[74,.5],[71,.5],[67,.5],[69,1],[71,.5],[74,.5],[78,.5],[81,.5],[79,2]],
+    bass:[[43,1],[43,1],[38,1],[38,1],[40,1],[40,1],[43,1],[43,1],[45,1],[43,1]]},
+  feest:{bpm:150,wave:'square',vol:.5,
+    mel:[[72,.5],[76,.5],[79,.5],[84,1],[79,.5],[84,1],[83,.5],[84,.5],[86,.5],[88,1.5],[84,.5],[81,.5],[79,.5],[76,.5],[72,.5],[74,.5],[76,.5],[79,1.5]],
+    bass:[[48,1],[52,1],[43,1],[47,1],[45,1],[48,1],[43,1],[43,1]]}
+};
+function stopTune(){ if(tuneTimer){clearTimeout(tuneTimer);tuneTimer=null;} curTune=null; }
+function playTune(name){
+  stopTune(); curTune=name;
+  if(!AC){ pendingTune=name; return; }
+  const tn=TUNES[name], beat=60/tn.bpm;
+  const melBeats=tn.mel.reduce((s,n)=>s+n[1],0);
+  const bassBeats=tn.bass.reduce((s,n)=>s+n[1],0);
+  const loopBeats=Math.max(melBeats,bassBeats);
+  function loop(t0){
+    if(curTune!==name) return;
+    let t=t0;
+    for(const [m,b] of tn.mel){ tone(m,t,b*beat*0.9,tn.wave,musicGain,tn.vol); t+=b*beat; }
+    t=t0;
+    for(const [m,b] of tn.bass){ tone(m,t,b*beat*0.9,'triangle',musicGain,.8); t+=b*beat; }
+    const next=t0+loopBeats*beat;
+    tuneTimer=setTimeout(()=>loop(next),(next-AC.currentTime)*1000-80);
+  }
+  loop(AC.currentTime+0.06);
+}
+/* --- geluidseffecten --- */
+function sfxSweep(f1,f2,dur,wave,vol){
+  if(!AC) return;
+  const t=AC.currentTime, o=AC.createOscillator(), g=AC.createGain();
+  o.type=wave; o.frequency.setValueAtTime(f1,t);
+  o.frequency.exponentialRampToValueAtTime(f2,t+dur);
+  g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+  o.connect(g); g.connect(sfxGain); o.start(t); o.stop(t+dur+0.05);
+}
+const sfxJump  =()=>sfxSweep(300,650,0.18,'square',.5);
+const sfxBoing =()=>sfxSweep(120,900,0.3,'triangle',.9);
+const sfxOef   =()=>sfxSweep(220,80,0.2,'square',.35);
+function sfxCollect(){ if(!AC)return; const t=AC.currentTime;
+  [76,80,83,88].forEach((m,i)=>tone(m,t+i*0.07,0.14,'square',sfxGain,.5)); }
+function sfxSparkle(){ if(!AC)return; const t=AC.currentTime;
+  [88,91,95,100].forEach((m,i)=>tone(m,t+i*0.05,0.2,'triangle',sfxGain,.6)); }
+function sfxFanfare(big){ if(!AC)return; const t=AC.currentTime;
+  const seq=big?[[72,.18],[72,.18],[72,.18],[76,.35],[74,.18],[76,.18],[79,.6],[84,.9]]
+               :[[72,.15],[76,.15],[79,.15],[84,.5]];
+  let tt=t; for(const [m,d] of seq){ tone(m,tt,d,'square',sfxGain,.55); tone(m-12,tt,d,'triangle',sfxGain,.6); tt+=d; } }
+function sfxHamer(){ if(!AC)return; const t=AC.currentTime;
+  const o=AC.createOscillator(), g=AC.createGain();
+  o.type='square'; o.frequency.setValueAtTime(160,t);
+  o.frequency.exponentialRampToValueAtTime(60,t+0.08);
+  g.gain.setValueAtTime(.8,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.1);
+  o.connect(g); g.connect(sfxGain); o.start(t); o.stop(t+0.12); }
+
+const btnM=document.getElementById('btnM');
+function toggleMusic(){ musicOn=!musicOn; btnM.textContent=musicOn?'🎵':'🔇';
+  if(musicGain) musicGain.gain.value=musicOn?0.16:0; }
+btnM.addEventListener('click',e=>{ensureAudio();toggleMusic();e.stopPropagation();});
+
+/* ============================ LEVELS ============================ */
+const LEVELS=[
+ {naam:'De Zonnige Weide', tune:'weide', item:'balk', doel:'Verzamel 6 houten balken!',
+  sky:['#a8e4ff','#eafaff'], breedte:2800,
+  plats:[[500,370,160],[860,300,150],[1250,360,170],[1700,280,150],[2150,350,160]],
+  items:[[330,440],[575,335],[935,265],[1330,325],[1770,245],[2450,440]],
+  mush:[1050], bushes:[1500,2050], snails:[]},
+ {naam:'Het Stenen Bos', tune:'bos', item:'steen', doel:'Verzamel 8 oranje stenen!',
+  sky:['#8fd4a8','#e3f6e0'], breedte:3000,
+  plats:[[450,370,150],[800,290,140],[1150,360,160],[1500,280,150],[1850,360,150],[2300,300,160]],
+  items:[[250,440],[520,335],[870,255],[1220,325],[1570,245],[1920,325],[2370,265],[2750,440]],
+  mush:[2600], bushes:[1000,2100], snails:[[1250,1700]]},
+ {naam:'De Regenboogrivier', tune:'rivier', item:'raam', doel:'Verzamel 4 ramen en de deur!',
+  sky:['#b8c8ff','#eef2ff'], breedte:3000,
+  plats:[[520,370,160],[1120,290,150],[1720,360,160],[2220,300,150]],
+  items:[[600,335],[1195,255],[1800,325],[2295,265],[2750,435]],
+  kinds:['raam','raam','raam','raam','deur'],
+  mush:[900], bushes:[1500], snails:[[1850,2250]]},
+ {naam:'De Dakpannenberg', tune:'berg', item:'dakpan', doel:'Verzamel 8 dakpannen en de schoorsteen!',
+  sky:['#c8d8e8','#f2f6fa'], breedte:3200,
+  plats:[[400,370,150],[750,300,140],[1100,370,150],[1450,290,150],[1800,370,150],[2150,300,150],[2500,370,150],[2850,240,160]],
+  items:[[200,440],[470,335],[820,265],[1170,335],[1520,255],[1870,335],[2220,265],[2570,335],[2925,205]],
+  kinds:['dakpan','dakpan','dakpan','dakpan','dakpan','dakpan','dakpan','dakpan','schoorsteen'],
+  mush:[3000], bushes:[950,2050], snails:[[1600,2000]]}
+];
+LEVELS.forEach(L=>{ if(!L.kinds) L.kinds=L.items.map(()=>L.item); });
+
+/* ============================ STATE ============================ */
+let state='title', li=0, huisStage=0, T=0;
+let P={x:100,y:GROUND,vx:0,vy:0,onG:true,face:1,walk:0,hurtT:0};
+let items=[], snails=[], mushT={}, doneT=-1, introT=0, buildT=0, buildKnocks=0, buildDone=false;
+let confetti=[], finalT=0;
+const keys={};
+
+function startLevel(n){
+  li=n; const L=LEVELS[li];
+  P={x:100,y:GROUND,vx:0,vy:0,onG:true,face:1,walk:0,hurtT:0};
+  items=L.items.map((p,i)=>({x:p[0],y:p[1],kind:L.kinds[i],got:false,bob:i*1.3}));
+  snails=(L.snails||[]).map(s=>({x0:s[0],x1:s[1],x:s[0],dir:1}));
+  mushT={}; doneT=-1; introT=2.2;
+  state='play'; playTune(L.tune);
+}
+function gotCount(){ return items.filter(i=>i.got).length; }
+
+/* ============================ INPUT ============================ */
+function press(k){ keys[k]=true; }
+function release(k){ keys[k]=false; }
+function actionTap(){
+  ensureAudio();
+  if(state==='title'){ huisStage=0; startLevel(0); }
+  else if(state==='build' && buildDone){
+    if(huisStage>=4){ state='final'; finalT=0; confetti=[]; playTune('feest'); sfxFanfare(true); }
+    else startLevel(li+1);
+  }
+  else if(state==='final' && finalT>2){ state='credits'; }
+  else if(state==='credits'){ stopTune(); playTune('titel'); state='title'; }
+}
+window.addEventListener('keydown',e=>{
+  ensureAudio();
+  if(['ArrowLeft','ArrowRight','ArrowUp','Space'].includes(e.code)) e.preventDefault();
+  if(e.code==='ArrowLeft'||e.code==='KeyA') press('L');
+  if(e.code==='ArrowRight'||e.code==='KeyD') press('R');
+  if(e.code==='ArrowUp'||e.code==='KeyW'||e.code==='Space'){ press('J');
+    if(state!=='play') actionTap(); }
+  if(e.code==='KeyM') toggleMusic();
+});
+window.addEventListener('keyup',e=>{
+  if(e.code==='ArrowLeft'||e.code==='KeyA') release('L');
+  if(e.code==='ArrowRight'||e.code==='KeyD') release('R');
+  if(e.code==='ArrowUp'||e.code==='KeyW'||e.code==='Space') release('J');
+});
+cv.addEventListener('pointerdown',()=>{ ensureAudio(); if(state!=='play') actionTap(); });
+if('ontouchstart' in window) document.body.classList.add('touch');
+function bindBtn(id,k){
+  const el=document.getElementById(id);
+  const on=e=>{e.preventDefault();ensureAudio();press(k); if(k==='J'&&state!=='play')actionTap();};
+  const off=e=>{e.preventDefault();release(k);};
+  el.addEventListener('touchstart',on,{passive:false});
+  el.addEventListener('touchend',off); el.addEventListener('touchcancel',off);
+  el.addEventListener('pointerdown',on); el.addEventListener('pointerup',off);
+}
+bindBtn('btnL','L'); bindBtn('btnR','R'); bindBtn('btnJ','J');
+
+/* ============================ UPDATE ============================ */
+let jumpHeld=false;
+function update(dt){
+  T+=dt;
+  if(state==='play'){
+    const L=LEVELS[li];
+    if(introT>0) introT-=dt;
+    /* besturing */
+    const SPD=4.2;
+    if(keys.L){ P.vx=-SPD; P.face=-1; } else if(keys.R){ P.vx=SPD; P.face=1; } else P.vx*=0.7;
+    if(keys.J && P.onG && !jumpHeld){ P.vy=-12.5; P.onG=false; jumpHeld=true; sfxJump(); }
+    if(!keys.J) jumpHeld=false;
+    if(P.hurtT>0){ P.hurtT-=dt; }
+    /* physica */
+    const prevY=P.y;
+    P.x=Math.max(30,Math.min(L.breedte-30,P.x+P.vx));
+    P.vy+=0.55; P.y+=P.vy;
+    P.onG=false;
+    if(P.y>=GROUND){ P.y=GROUND; P.vy=0; P.onG=true; }
+    for(const [px,py,pw] of L.plats){
+      if(P.vy>=0 && prevY<=py && P.y>=py && P.x>px-18 && P.x<px+pw+18){
+        P.y=py; P.vy=0; P.onG=true;
+      }
+    }
+    if(Math.abs(P.vx)>0.5 && P.onG) P.walk+=dt*12; else P.walk=0;
+    /* paddenstoel-trampoline */
+    for(const mx of L.mush){
+      if(Math.abs(P.x-mx)<34 && P.y>=GROUND-6 && P.vy>=0){
+        P.vy=-17; P.onG=false; mushT[mx]=0.3; sfxBoing();
+      }
+    }
+    for(const k in mushT) mushT[k]=Math.max(0,mushT[k]-dt);
+    /* prikstruiken & slakken: zachtjes terugduwen */
+    const bump=(bx)=>{ if(P.hurtT<=0 && Math.abs(P.x-bx)<38 && P.y>GROUND-50){
+      P.vx=(P.x<bx?-1:1)*7; P.vy=-6; P.onG=false; P.hurtT=0.8; sfxOef(); } };
+    for(const bx of L.bushes) bump(bx);
+    for(const s of snails){
+      s.x+=s.dir*0.55; if(s.x>s.x1){s.dir=-1;} if(s.x<s.x0){s.dir=1;}
+      bump(s.x);
+    }
+    /* verzamelen */
+    for(const it of items){
+      it.bob+=dt*3;
+      if(!it.got && Math.abs(P.x-it.x)<42 && Math.abs((P.y-45)-it.y)<58){
+        it.got=true; sfxCollect();
+        if(gotCount()===items.length){ doneT=0; sfxFanfare(false); }
+      }
+    }
+    if(doneT>=0){ doneT+=dt;
+      if(doneT>1.6){ huisStage=li+1; state='build'; buildT=0; buildKnocks=0; buildDone=false; stopTune(); }
+    }
+  }
+  else if(state==='build'){
+    buildT+=dt;
+    const knockAt=[0.5,1.0,1.5];
+    if(buildKnocks<3 && buildT>knockAt[buildKnocks]){ buildKnocks++; sfxHamer(); }
+    if(!buildDone && buildT>2.0){ buildDone=true; sfxSparkle(); }
+  }
+  else if(state==='final'){
+    finalT+=dt;
+    if(confetti.length<160 && Math.random()<0.5)
+      confetti.push({x:Math.random()*W,y:-10,vy:1+Math.random()*2.5,vx:(Math.random()-0.5)*1.5,
+        c:['#e03020','#f39c1f','#5cb52a','#4aa3ff','#ff6bd6','#ffd93d'][Math.floor(Math.random()*6)],
+        r:3+Math.random()*4, sp:Math.random()*6});
+    for(const p of confetti){ p.x+=p.vx; p.y+=p.vy; p.sp+=0.1; if(p.y>H+20){p.y=-10;p.x=Math.random()*W;} }
+  }
+}
+
+/* ============================ TEKENEN ============================ */
+const sr=n=>{ const v=Math.sin(n*127.1)*43758.5453; return v-Math.floor(v); };
+function fontT(px,w){ ctx.font=(w?'bold ':'')+px+'px "Comic Sans MS","Chalkboard SE",cursive,sans-serif'; }
+
+function potloodWolk(x,y,s){ /* potlood-wolkjes zoals bovenaan Dex' tekening */
+  ctx.save(); ctx.translate(x,y); ctx.scale(s,s);
+  ctx.fillStyle='rgba(255,255,255,.85)'; ctx.strokeStyle=C.potlood; ctx.lineWidth=2.5/s;
+  ctx.beginPath();
+  ctx.arc(-28,4,16,0,7); ctx.arc(-8,-8,18,0,7); ctx.arc(16,-2,16,0,7);
+  ctx.arc(28,8,13,0,7); ctx.arc(0,10,17,0,7);
+  ctx.fill(); ctx.stroke(); ctx.restore();
+}
+function zon(x,y){
+  ctx.save(); ctx.translate(x,y);
+  ctx.strokeStyle='#f2b71e'; ctx.lineWidth=4;
+  for(let i=0;i<10;i++){ const a=i/10*Math.PI*2+T*0.15;
+    ctx.beginPath(); ctx.moveTo(Math.cos(a)*38,Math.sin(a)*38);
+    ctx.lineTo(Math.cos(a)*52,Math.sin(a)*52); ctx.stroke(); }
+  ctx.fillStyle='#ffd93d'; ctx.strokeStyle=C.lijn; ctx.lineWidth=2.5;
+  ctx.beginPath(); ctx.arc(0,0,32,0,7); ctx.fill(); ctx.stroke();
+  ctx.fillStyle='#333';
+  ctx.beginPath(); ctx.arc(-10,-6,3.5,0,7); ctx.arc(10,-6,3.5,0,7); ctx.fill();
+  ctx.strokeStyle='#333'; ctx.lineWidth=3;
+  ctx.beginPath(); ctx.arc(0,4,14,0.25*Math.PI,0.75*Math.PI); ctx.stroke();
+  ctx.restore();
+}
+/* ---------- DINO: groene kop, zigzag-tanden, stekels, gestreept shirt ---------- */
+function drawDino(x,y,face,walk,inAir,armsUp,sc){
+  sc=sc||1;
+  ctx.save(); ctx.translate(x,y); ctx.scale(face*sc,sc);
+  ctx.lineJoin='round'; ctx.lineCap='round';
+  const leg=inAir?0:Math.sin(walk)*7;
+  /* benen (bruin, zoals op de tekening) */
+  ctx.fillStyle=C.huid; ctx.strokeStyle=C.lijn; ctx.lineWidth=2.5;
+  const been=(bx,off)=>{ ctx.beginPath();
+    ctx.roundRect(bx-7,-34+ (inAir?-6:0),14,34+off,6); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(bx+3,off- (inAir?6:0),10,5,0,0,7); ctx.fill(); ctx.stroke(); };
+  been(-12,leg); been(8,-leg);
+  /* shirt: rood-wit gestreept */
+  ctx.fillStyle=C.shirtWit;
+  ctx.beginPath(); ctx.roundRect(-24,-78,48,48,10); ctx.fill();
+  ctx.save(); ctx.beginPath(); ctx.roundRect(-24,-78,48,48,10); ctx.clip();
+  ctx.fillStyle=C.shirtRood;
+  ctx.fillRect(-24,-78,48,10); ctx.fillRect(-24,-58,48,10); ctx.fillRect(-24,-38,48,10);
+  ctx.restore();
+  ctx.strokeStyle=C.lijn; ctx.beginPath(); ctx.roundRect(-24,-78,48,48,10); ctx.stroke();
+  /* armen omhoog — net als op de tekening! */
+  ctx.strokeStyle=C.huid; ctx.lineWidth=11;
+  const zw=armsUp?0:Math.sin(walk)*5;
+  const omhoog=armsUp||inAir;
+  ctx.beginPath(); ctx.moveTo(-20,-70);
+  ctx.lineTo(omhoog?-48:-36,omhoog?-96:-78+zw); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(20,-70);
+  ctx.lineTo(omhoog?50:36,omhoog?-96:-78-zw); ctx.stroke();
+  ctx.strokeStyle=C.lijn; ctx.lineWidth=2;
+  ctx.fillStyle=C.huid;
+  const hy1=omhoog?-101:-80+zw, hy2=omhoog?-101:-80-zw;
+  ctx.beginPath(); ctx.arc(omhoog?-50:-38,hy1,7,0,7); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.arc(omhoog?52:38,hy2,7,0,7); ctx.fill(); ctx.stroke();
+  /* stekels op de rug (bruin) */
+  ctx.fillStyle=C.stekelBruin; ctx.strokeStyle=C.lijn; ctx.lineWidth=2;
+  for(let i=0;i<4;i++){ const sy=-128+i*16;
+    ctx.beginPath(); ctx.moveTo(-14,sy); ctx.lineTo(-30,sy+8); ctx.lineTo(-14,sy+16);
+    ctx.closePath(); ctx.fill(); ctx.stroke(); }
+  /* kop: groot en groen met open bek */
+  ctx.fillStyle=C.dinoGroen; ctx.strokeStyle=C.lijn; ctx.lineWidth=2.5;
+  ctx.beginPath();
+  ctx.moveTo(-16,-70);
+  ctx.quadraticCurveTo(-24,-140,8,-142);
+  ctx.quadraticCurveTo(40,-142,44,-118);
+  ctx.lineTo(14,-112);            /* bovenkaak naar mondhoek */
+  ctx.lineTo(42,-96);             /* onderkaak punt */
+  ctx.quadraticCurveTo(24,-78,4,-80);
+  ctx.quadraticCurveTo(-12,-80,-16,-70);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  /* open bek met witte zigzag-tanden */
+  ctx.fillStyle='#fff'; ctx.strokeStyle=C.lijn; ctx.lineWidth=1.8;
+  ctx.beginPath(); ctx.moveTo(14,-112); ctx.lineTo(44,-118); ctx.lineTo(42,-96); ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  ctx.fillStyle='#fff';
+  for(let i=0;i<3;i++){ const tx=17+i*9;
+    ctx.beginPath(); ctx.moveTo(tx,-113+i*1.5); ctx.lineTo(tx+5,-104+i*1.5); ctx.lineTo(tx+9,-114+i*1.5);
+    ctx.closePath(); ctx.fill(); ctx.stroke(); }
+  /* oog */
+  ctx.fillStyle='#222';
+  ctx.beginPath(); ctx.arc(16,-128,4,0,7); ctx.fill();
+  ctx.beginPath(); ctx.arc(2,-131,3,0,7); ctx.fill();
+  ctx.restore();
+}
+/* ---------- HET HUIS van de tekening: oranje, rood puntdak ---------- */
+function drawHuis(x,y,s,stage,opts){
+  opts=opts||{};
+  ctx.save(); ctx.translate(x,y); ctx.scale(s,s);
+  ctx.lineJoin='round'; ctx.lineCap='round';
+  const bw=220, bh=190, roofH=150;   /* muren & hoog puntdak */
+  if(stage<1){ /* droomhuis: gestippeld potlood */
+    ctx.strokeStyle=C.potlood; ctx.lineWidth=3; ctx.setLineDash([9,7]);
+    ctx.strokeRect(0,-bh,bw,bh);
+    ctx.beginPath(); ctx.moveTo(-8,-bh); ctx.lineTo(bw/2,-bh-roofH); ctx.lineTo(bw+8,-bh); ctx.stroke();
+    ctx.setLineDash([]); ctx.restore(); return;
+  }
+  if(stage===1){ /* houten frame */
+    ctx.strokeStyle=C.stekelBruin; ctx.lineWidth=12;
+    ctx.beginPath();
+    ctx.moveTo(6,0); ctx.lineTo(6,-bh); ctx.moveTo(bw-6,0); ctx.lineTo(bw-6,-bh);
+    ctx.moveTo(0,-bh); ctx.lineTo(bw,-bh);
+    ctx.moveTo(bw/2,0); ctx.lineTo(bw/2,-bh);
+    ctx.moveTo(0,-bh/2); ctx.lineTo(bw,-bh/2);
+    ctx.stroke();
+    ctx.strokeStyle=C.lijn; ctx.lineWidth=2; ctx.setLineDash([9,7]);
+    ctx.beginPath(); ctx.moveTo(-8,-bh); ctx.lineTo(bw/2,-bh-roofH); ctx.lineTo(bw+8,-bh); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  if(stage>=2){ /* oranje muren */
+    ctx.fillStyle=C.huisOranje; ctx.strokeStyle=C.lijn; ctx.lineWidth=3;
+    ctx.fillRect(0,-bh,bw,bh); ctx.strokeRect(0,-bh,bw,bh);
+  }
+  if(stage>=3){ /* ramen met kruisjes + wit deurtje met knopje */
+    const raam=(rx,ry,rs)=>{ rs=rs||1;
+      ctx.fillStyle='#fff'; ctx.strokeStyle='#555'; ctx.lineWidth=2.5;
+      ctx.fillRect(rx,ry,44*rs,40*rs); ctx.strokeRect(rx,ry,44*rs,40*rs);
+      ctx.beginPath(); ctx.moveTo(rx+22*rs,ry); ctx.lineTo(rx+22*rs,ry+40*rs);
+      ctx.moveTo(rx,ry+20*rs); ctx.lineTo(rx+44*rs,ry+20*rs); ctx.stroke(); };
+    raam(28,-bh+22); raam(bw-72,-bh+22); raam(bw-64,-72,0.9);
+    ctx.fillStyle='#fff'; ctx.strokeStyle='#555'; ctx.lineWidth=2.5;
+    ctx.beginPath();
+    ctx.moveTo(66,0); ctx.lineTo(66,-62); ctx.quadraticCurveTo(66,-78,88,-78);
+    ctx.quadraticCurveTo(110,-78,110,-62); ctx.lineTo(110,0); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#999'; ctx.beginPath(); ctx.arc(100,-36,4,0,7); ctx.fill();
+  }
+  if(stage>=4){ /* hoog rood puntdak + schoorsteentje */
+    ctx.fillStyle=C.dakRood; ctx.strokeStyle=C.lijn; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.moveTo(-10,-bh); ctx.lineTo(bw/2,-bh-roofH); ctx.lineTo(bw+10,-bh);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=C.huisOranje;
+    ctx.fillRect(bw-52,-bh-roofH*0.52,26,44);
+    ctx.strokeRect(bw-52,-bh-roofH*0.52,26,44);
+    if(opts.rook){ ctx.fillStyle='rgba(220,220,220,.8)'; ctx.strokeStyle=C.potlood; ctx.lineWidth=1.5;
+      for(let i=0;i<3;i++){ const rr=8+i*5, ry=-bh-roofH*0.52-14-i*26-Math.sin(T*1.4+i)*4;
+        ctx.beginPath(); ctx.arc(bw-39+Math.sin(T+i*2)*5,ry,rr,0,7); ctx.fill(); ctx.stroke(); } }
+  }
+  if(opts.bloemen && stage>=4){
+    for(let i=0;i<6;i++){ const fx=-30+i*58+sr(i)*20;
+      ctx.strokeStyle='#3d8b26'; ctx.lineWidth=3;
+      ctx.beginPath(); ctx.moveTo(fx,2); ctx.lineTo(fx,-16); ctx.stroke();
+      ctx.fillStyle=['#ff6bd6','#ffd93d','#ff8c42'][i%3];
+      for(let p=0;p<5;p++){ const a=p/5*Math.PI*2;
+        ctx.beginPath(); ctx.arc(fx+Math.cos(a)*6,-20+Math.sin(a)*6,4.5,0,7); ctx.fill(); }
+      ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(fx,-20,3.5,0,7); ctx.fill(); }
+  }
+  ctx.restore();
+}
+function denkwolkje(x,y,s,inhoud){ /* denkwolkje met bolletjes, zoals op de tekening */
+  ctx.save(); ctx.translate(x,y); ctx.scale(s,s);
+  ctx.fillStyle='rgba(255,255,255,.95)'; ctx.strokeStyle=C.potlood; ctx.lineWidth=2.5/s;
+  ctx.beginPath(); ctx.arc(52,58,5,0,7); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.arc(38,42,8,0,7); ctx.fill(); ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(-38,-6,26,0,7); ctx.arc(-10,-20,30,0,7); ctx.arc(24,-12,27,0,7);
+  ctx.arc(30,10,22,0,7); ctx.arc(-6,16,26,0,7); ctx.arc(-36,12,20,0,7);
+  ctx.fill(); ctx.stroke();
+  inhoud&&inhoud(); ctx.restore();
+}
+function drawItem(it,wob){
+  const y=it.y+Math.sin(it.bob)*5;
+  ctx.save(); ctx.translate(it.x,y); ctx.lineJoin='round';
+  ctx.strokeStyle=C.lijn; ctx.lineWidth=2.5;
+  if(it.kind==='balk'){ ctx.rotate(-0.2); ctx.fillStyle=C.stekelBruin;
+    ctx.beginPath(); ctx.roundRect(-26,-8,52,16,5); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle='rgba(255,255,255,.4)'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(-18,0); ctx.lineTo(16,0); ctx.stroke(); }
+  else if(it.kind==='steen'){ ctx.fillStyle=C.huisOranje;
+    ctx.beginPath(); ctx.moveTo(-20,10); ctx.quadraticCurveTo(-24,-12,-4,-16);
+    ctx.quadraticCurveTo(20,-18,22,0); ctx.quadraticCurveTo(22,12,0,13); ctx.closePath();
+    ctx.fill(); ctx.stroke(); }
+  else if(it.kind==='raam'){ ctx.fillStyle='#fff';
+    ctx.fillRect(-18,-16,36,32); ctx.strokeRect(-18,-16,36,32);
+    ctx.beginPath(); ctx.moveTo(0,-16); ctx.lineTo(0,16); ctx.moveTo(-18,0); ctx.lineTo(18,0); ctx.stroke(); }
+  else if(it.kind==='deur'){ ctx.fillStyle='#fff';
+    ctx.beginPath(); ctx.moveTo(-15,22); ctx.lineTo(-15,-10); ctx.quadraticCurveTo(-15,-22,0,-22);
+    ctx.quadraticCurveTo(15,-22,15,-10); ctx.lineTo(15,22); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#999'; ctx.beginPath(); ctx.arc(8,2,3,0,7); ctx.fill(); }
+  else if(it.kind==='dakpan'){ ctx.fillStyle=C.dakRood;
+    ctx.beginPath(); ctx.roundRect(-18,-12,36,24,7); ctx.fill(); ctx.stroke(); }
+  else if(it.kind==='schoorsteen'){ ctx.fillStyle=C.huisOranje;
+    ctx.fillRect(-12,-20,24,40); ctx.strokeRect(-12,-20,24,40);
+    ctx.fillStyle='#777'; ctx.fillRect(-16,-26,32,8); ctx.strokeRect(-16,-26,32,8); }
+  /* glinster */
+  if(Math.sin(it.bob*2)>0.85){ ctx.strokeStyle='#ffd93d'; ctx.lineWidth=2.5;
+    ctx.beginPath(); ctx.moveTo(24,-24); ctx.lineTo(32,-32); ctx.moveTo(32,-24); ctx.lineTo(24,-32); ctx.stroke(); }
+  ctx.restore();
+}
+function drawMiniItem(kind,x,y,s){
+  drawItem({x:x,y:y,kind:kind,bob:Math.PI/2},false);
+}
+function drawBush(x){
+  ctx.save(); ctx.translate(x,GROUND);
+  ctx.fillStyle='#3d8b26'; ctx.strokeStyle=C.lijn; ctx.lineWidth=2.5; ctx.lineJoin='round';
+  ctx.beginPath();
+  for(let i=0;i<9;i++){ const a=Math.PI+(i/8)*Math.PI, r=(i%2?36:24);
+    const px=Math.cos(a)*-r, py=Math.sin(a)*-r;
+    i===0?ctx.moveTo(px,py):ctx.lineTo(px,py); }
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
+function drawMush(x){
+  const sq=mushT[x]?1-mushT[x]*1.2:1;
+  ctx.save(); ctx.translate(x,GROUND); ctx.scale(1/Math.max(sq,.6),Math.max(sq,.6));
+  ctx.fillStyle='#fff'; ctx.strokeStyle=C.lijn; ctx.lineWidth=2.5;
+  ctx.beginPath(); ctx.roundRect(-9,-26,18,26,4); ctx.fill(); ctx.stroke();
+  ctx.fillStyle='#e03020';
+  ctx.beginPath(); ctx.arc(0,-26,26,Math.PI,0); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle='#fff';
+  ctx.beginPath(); ctx.arc(-11,-34,4.5,0,7); ctx.arc(8,-38,4,0,7); ctx.arc(2,-29,3.5,0,7); ctx.fill();
+  ctx.restore();
+}
+function drawSnail(s){
+  ctx.save(); ctx.translate(s.x,GROUND); ctx.scale(s.dir,1);
+  ctx.fillStyle='#e8c66a'; ctx.strokeStyle=C.lijn; ctx.lineWidth=2.5;
+  ctx.beginPath(); ctx.moveTo(-22,0); ctx.quadraticCurveTo(-24,-12,-8,-12);
+  ctx.lineTo(16,-12); ctx.quadraticCurveTo(24,-12,24,-4); ctx.lineTo(24,0); ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  ctx.strokeStyle='#e8c66a'; ctx.lineWidth=6;
+  ctx.beginPath(); ctx.moveTo(18,-10); ctx.lineTo(24,-24); ctx.stroke();
+  ctx.fillStyle='#333'; ctx.beginPath(); ctx.arc(25,-26,3,0,7); ctx.fill();
+  ctx.fillStyle='#b57edc'; ctx.strokeStyle=C.lijn; ctx.lineWidth=2.5;
+  ctx.beginPath(); ctx.arc(-6,-18,14,0,7); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle='rgba(60,60,60,.5)'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.arc(-6,-18,8,0,5); ctx.stroke();
+  ctx.restore();
+}
+function drawBackdrop(L,camX){
+  /* lucht */
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,L.sky[0]); g.addColorStop(1,L.sky[1]);
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  /* thema-achtergrond (halve parallax) */
+  ctx.save(); ctx.translate(-camX*0.4,0);
+  const th=li;
+  if(th===2){ /* regenboog */
+    const rx=camX*0.4+W/2;
+    const rc=['#e03020','#f39c1f','#ffd93d','#5cb52a','#4aa3ff','#b57edc'];
+    rc.forEach((col,i)=>{ ctx.strokeStyle=col; ctx.lineWidth=14; ctx.globalAlpha=.7;
+      ctx.beginPath(); ctx.arc(rx,H+120,430-i*15,Math.PI,0); ctx.stroke(); });
+    ctx.globalAlpha=1;
+  }
+  for(let i=0;i<Math.ceil(L.breedte/260)+3;i++){
+    const bx=i*260+sr(i*3+li)*120;
+    if(th===1){ /* dennenbomen */
+      ctx.fillStyle='#8a5a2b'; ctx.fillRect(bx-8,GROUND-58,16,58);
+      ctx.fillStyle='#2f7a24'; ctx.strokeStyle=C.lijn; ctx.lineWidth=2;
+      for(let l=0;l<3;l++){ const ly=GROUND-58-l*34;
+        ctx.beginPath(); ctx.moveTo(bx-46+l*8,ly); ctx.lineTo(bx,ly-52); ctx.lineTo(bx+46-l*8,ly);
+        ctx.closePath(); ctx.fill(); ctx.stroke(); }
+    } else if(th===3){ /* bergen */
+      if(i%2===0){ ctx.fillStyle='#9aa7b5'; ctx.strokeStyle=C.lijn; ctx.lineWidth=2.5;
+        ctx.beginPath(); ctx.moveTo(bx-170,GROUND); ctx.lineTo(bx,GROUND-230-sr(i)*60);
+        ctx.lineTo(bx+170,GROUND); ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.fillStyle='#fff';
+        const py=GROUND-230-sr(i)*60;
+        ctx.beginPath(); ctx.moveTo(bx-42,py+58); ctx.lineTo(bx,py); ctx.lineTo(bx+42,py+58);
+        ctx.quadraticCurveTo(bx,py+40,bx-42,py+58); ctx.fill(); }
+    } else if(th===0){ /* bloemetjes in de wei */
+      ctx.strokeStyle='#3d8b26'; ctx.lineWidth=2.5;
+      ctx.beginPath(); ctx.moveTo(bx,GROUND); ctx.lineTo(bx,GROUND-14); ctx.stroke();
+      ctx.fillStyle=['#ff6bd6','#ffd93d','#fff'][i%3];
+      ctx.beginPath(); ctx.arc(bx,GROUND-18,6,0,7); ctx.fill();
+    }
+  }
+  if(th===2){ /* rivier glinstert achteraan */
+    ctx.fillStyle='rgba(74,163,255,.5)';
+    ctx.fillRect(-200,GROUND-40,L.breedte+800,26);
+    ctx.strokeStyle='rgba(255,255,255,.8)'; ctx.lineWidth=2.5;
+    for(let i=0;i<Math.ceil(L.breedte/90);i++){
+      const wx=i*90, wy=GROUND-28+Math.sin(T*2+i)*3;
+      ctx.beginPath(); ctx.arc(wx,wy,9,0.2,Math.PI-0.2); ctx.stroke(); }
+  }
+  ctx.restore();
+  /* potloodwolkjes voorop (traag mee) */
+  ctx.save(); ctx.translate(-camX*0.25,0);
+  for(let i=0;i<Math.ceil((L.breedte||W)/300)+3;i++)
+    potloodWolk(i*300+sr(i+li*7)*140, 60+sr(i*2+li)*70, 0.8+sr(i*5)*0.5);
+  ctx.restore();
+  zon(W-90,80);
+}
+function drawGrond(L,camX){
+  ctx.save(); ctx.translate(-camX,0);
+  ctx.fillStyle=li===3?'#b3a08c':C.gras;
+  ctx.fillRect(-50,GROUND,L.breedte+100,H-GROUND);
+  ctx.strokeStyle=li===3?'#7d6c58':C.grasD; ctx.lineWidth=5;
+  ctx.beginPath(); ctx.moveTo(-50,GROUND);
+  for(let x=-50;x<L.breedte+100;x+=26) ctx.lineTo(x,GROUND+Math.sin(x*0.08)*3);
+  ctx.stroke();
+  if(li!==3){ ctx.strokeStyle=C.grasD; ctx.lineWidth=2.5;
+    for(let x=0;x<L.breedte;x+=44){ const gx=x+sr(x)*20;
+      ctx.beginPath(); ctx.moveTo(gx,GROUND+4); ctx.lineTo(gx-4,GROUND-8);
+      ctx.moveTo(gx+5,GROUND+4); ctx.lineTo(gx+9,GROUND-7); ctx.stroke(); } }
+  /* platforms */
+  for(const [px,py,pw] of L.plats){
+    ctx.fillStyle=C.stekelBruin; ctx.strokeStyle=C.lijn; ctx.lineWidth=2.5;
+    ctx.beginPath(); ctx.roundRect(px,py,pw,18,8); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=li===3?'#c9b8a4':C.gras;
+    ctx.beginPath(); ctx.roundRect(px-4,py-6,pw+8,12,6); ctx.fill(); ctx.stroke();
+  }
+  ctx.restore();
+}
+function hud(L){
+  /* denkwolkje met mini-huis: zo ver is het huis al! */
+  denkwolkje(74,64,0.9,()=>{ ctx.save(); ctx.scale(0.2,0.2); ctx.translate(-110,120);
+    drawHuis(0,0,1,huisStage,{}); ctx.restore(); });
+  /* teller */
+  ctx.save();
+  ctx.fillStyle='rgba(255,255,255,.85)'; ctx.strokeStyle=C.lijn; ctx.lineWidth=2.5;
+  ctx.beginPath(); ctx.roundRect(140,26,150,56,14); ctx.fill(); ctx.stroke();
+  drawMiniItem(items.find(i=>!i.got)?.kind||L.kinds[L.kinds.length-1],178,54);
+  fontT(28,true); ctx.fillStyle='#333'; ctx.textAlign='left'; ctx.textBaseline='middle';
+  ctx.fillText(gotCount()+' / '+items.length,212,56);
+  ctx.restore();
+  /* levelnaam */
+  fontT(22,true); ctx.textAlign='center'; ctx.fillStyle='rgba(60,60,60,.9)';
+  ctx.fillText('Level '+(li+1)+' — '+L.naam, W/2, 40);
+  if(introT>0){
+    ctx.save(); ctx.globalAlpha=Math.min(1,introT);
+    ctx.fillStyle='rgba(255,255,255,.92)'; ctx.strokeStyle=C.lijn; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.roundRect(W/2-290,H/2-64,580,110,20); ctx.fill(); ctx.stroke();
+    fontT(34,true); ctx.fillStyle='#d93025'; ctx.textAlign='center';
+    ctx.fillText(L.naam, W/2, H/2-22);
+    fontT(24,false); ctx.fillStyle='#333';
+    ctx.fillText(L.doel, W/2, H/2+16);
+    ctx.restore();
+  }
+  if(doneT>=0){
+    fontT(44,true); ctx.textAlign='center';
+    ctx.fillStyle='#d93025'; ctx.strokeStyle='#fff'; ctx.lineWidth=6;
+    ctx.strokeText('Alles gevonden! Hoera!',W/2,H/2-40);
+    ctx.fillText('Alles gevonden! Hoera!',W/2,H/2-40);
+  }
+}
+
+/* ---------- schermen ---------- */
+function scnTitle(){
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#a8e4ff'); g.addColorStop(1,'#f2fbff');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  for(let i=0;i<6;i++) potloodWolk(90+i*160,64+sr(i)*40,0.9+sr(i*3)*0.4);
+  zon(W-90,90);
+  ctx.fillStyle=C.gras; ctx.fillRect(0,GROUND,W,H-GROUND);
+  ctx.strokeStyle=C.grasD; ctx.lineWidth=5;
+  ctx.beginPath(); ctx.moveTo(0,GROUND);
+  for(let x=0;x<W;x+=26) ctx.lineTo(x,GROUND+Math.sin(x*0.08)*3); ctx.stroke();
+  /* titel zoals Dex hem schreef */
+  fontT(64,true); ctx.textAlign='center';
+  ctx.fillStyle='#2a5db0'; ctx.strokeStyle='#fff'; ctx.lineWidth=8;
+  ctx.strokeText('dino op avontuur',W/2,120);
+  ctx.fillText('dino op avontuur',W/2,120);
+  fontT(24,false); ctx.fillStyle='#555';
+  ctx.fillText('een spel van Dex (6 jaar)',W/2,158);
+  /* dino met denkwolkje, droomhuis rechts */
+  drawDino(280,GROUND,1,0,false,true,1.15);
+  denkwolkje(150,230,1.5,()=>{
+    fontT(15,true); ctx.fillStyle='#333'; ctx.textAlign='center';
+    ctx.fillText('ik dino in',0,-12); ctx.fillText('mooi huis!',0,8);
+  });
+  drawHuis(620,GROUND,0.95,0,{});
+  fontT(30,true); ctx.fillStyle='#d93025'; ctx.textAlign='center';
+  if(Math.sin(T*4)>-0.3) ctx.fillText('Druk op SPATIE of tik om te starten!',W/2,H-24);
+  fontT(17,false); ctx.fillStyle='#666';
+  ctx.fillText('lopen: ← → of A/D  ·  springen: SPATIE of ↑  ·  muziek: M',W/2,GROUND+34);
+}
+function scnPlay(){
+  const L=LEVELS[li];
+  const camX=Math.max(0,Math.min(L.breedte-W,P.x-W/2));
+  drawBackdrop(L,camX); drawGrond(L,camX);
+  ctx.save(); ctx.translate(-camX,0);
+  for(const bx of L.bushes) drawBush(bx);
+  for(const mx of L.mush) drawMush(mx);
+  for(const s of snails) drawSnail(s);
+  for(const it of items) if(!it.got) drawItem(it,true);
+  const knip=P.hurtT>0&&Math.sin(T*30)>0;
+  if(!knip) drawDino(P.x,P.y,P.face,P.walk,!P.onG,false,1);
+  ctx.restore();
+  hud(L);
+}
+function scnBuild(){
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#ffe9c2'); g.addColorStop(1,'#fff8ea');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  for(let i=0;i<5;i++) potloodWolk(120+i*190,60,0.8);
+  ctx.fillStyle=C.gras; ctx.fillRect(0,GROUND,W,H-GROUND);
+  const toon=buildDone?huisStage:huisStage-1;
+  drawHuis(520,GROUND,1.15,toon,{});
+  const hop=(!buildDone&&Math.sin(T*10)>0)?-12:0;
+  drawDino(400,GROUND+hop,1,buildDone?0:T*12,false,buildDone,1);
+  fontT(34,true); ctx.textAlign='center'; ctx.fillStyle='#b0641e';
+  ctx.fillText(buildDone?'':'Dino is aan het bouwen…',W/2,90);
+  if(buildDone){
+    const msg=['','Het houten frame staat!','De oranje muren zitten erop!',
+               'De ramen en de deur zitten erin!','Het dak zit erop — het huis is af!'][huisStage];
+    fontT(36,true); ctx.fillStyle='#d93025';
+    ctx.fillText(msg,W/2,90);
+    fontT(24,false); ctx.fillStyle='#333';
+    if(Math.sin(T*4)>-0.3)
+      ctx.fillText(huisStage>=4?'Druk op SPATIE voor het grote feest!':'Druk op SPATIE voor het volgende level!',W/2,135);
+    /* glinstertjes */
+    for(let i=0;i<8;i++){ const a=T*2+i, gx=520+130+Math.cos(a)*180, gy=GROUND-190+Math.sin(a*1.3)*130;
+      ctx.strokeStyle='#ffd93d'; ctx.lineWidth=3;
+      ctx.beginPath(); ctx.moveTo(gx-7,gy); ctx.lineTo(gx+7,gy); ctx.moveTo(gx,gy-7); ctx.lineTo(gx,gy+7); ctx.stroke(); }
+  }
+}
+function scnFinal(){
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#a8e4ff'); g.addColorStop(1,'#fdf3d8');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  for(let i=0;i<6;i++) potloodWolk(90+i*160,58,0.85);
+  zon(90,90);
+  ctx.fillStyle=C.gras; ctx.fillRect(0,GROUND,W,H-GROUND);
+  drawHuis(560,GROUND,1.2,4,{rook:true,bloemen:true});
+  drawDino(430,GROUND,1,0,false,true,1.1);
+  denkwolkje(300,210,1.4,()=>{
+    fontT(15,true); ctx.fillStyle='#333'; ctx.textAlign='center';
+    ctx.fillText('ik dino in',0,-14); ctx.fillText('mooi huis!',0,6);
+    ctx.fillStyle='#e03020';
+    ctx.beginPath(); /* hartje: het is gelukt! */
+    ctx.moveTo(0,34); ctx.bezierCurveTo(-14,20,-6,10,0,20);
+    ctx.bezierCurveTo(6,10,14,20,0,34); ctx.fill();
+  });
+  for(const p of confetti){ ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(p.sp);
+    ctx.fillStyle=p.c; ctx.fillRect(-p.r,-p.r/2,p.r*2,p.r); ctx.restore(); }
+  fontT(54,true); ctx.textAlign='center';
+  ctx.fillStyle='#d93025'; ctx.strokeStyle='#fff'; ctx.lineWidth=8;
+  ctx.strokeText('HET HUIS IS AF! HOERA!',W/2,100);
+  ctx.fillText('HET HUIS IS AF! HOERA!',W/2,100);
+  fontT(26,true); ctx.fillStyle='#2a5db0';
+  ctx.fillText('Dino woont nu in zijn mooie huis 🧡',W/2,150);
+  if(finalT>2){ fontT(22,false); ctx.fillStyle='#333';
+    if(Math.sin(T*4)>-0.3) ctx.fillText('Druk op SPATIE voor de aftiteling',W/2,H-20); }
+}
+let tekImg=null, tekOk=false;
+(function(){ tekImg=new Image(); tekImg.onload=()=>tekOk=true; tekImg.src='tekening-dex.jpg'; })();
+function scnCredits(){
+  ctx.fillStyle='#fdfdf5'; ctx.fillRect(0,0,W,H);
+  for(let i=0;i<5;i++) potloodWolk(120+i*190,50,0.75);
+  fontT(46,true); ctx.textAlign='center';
+  ctx.fillStyle='#2a5db0'; ctx.fillText('dino op avontuur',W/2,110);
+  fontT(30,true); ctx.fillStyle='#d93025';
+  ctx.fillText('⭐ Bedacht & getekend door DEX (6 jaar) ⭐',W/2,170);
+  fontT(22,false); ctx.fillStyle='#333';
+  ctx.fillText('Het verhaal, de dino en het mooie huis: allemaal van Dex',W/2,210);
+  ctx.fillText('Denkwolkje-woorden: "ik dino in mooi huis!" — Dex',W/2,244);
+  ctx.fillText('Programmeerwerk: Claude',W/2,278);
+  ctx.fillText('Muziek & geluidjes: maakt het spel helemaal zelf',W/2,312);
+  if(tekOk){
+    const iw=250, ih=iw*tekImg.height/tekImg.width;
+    ctx.save(); ctx.translate(W/2,360+ih/2); ctx.rotate(-0.03);
+    ctx.fillStyle='#fff'; ctx.strokeStyle='#bbb'; ctx.lineWidth=2;
+    ctx.fillRect(-iw/2-8,-ih/2-8,iw+16,ih+16); ctx.strokeRect(-iw/2-8,-ih/2-8,iw+16,ih+16);
+    ctx.drawImage(tekImg,-iw/2,-ih/2,iw,ih);
+    ctx.restore();
+    fontT(16,false); ctx.fillStyle='#888';
+    ctx.fillText('de echte tekening!',W/2,360+ih+30);
+  } else {
+    drawDino(W/2-120,H-60,1,0,false,true,0.9);
+    drawHuis(W/2+30,H-60,0.55,4,{bloemen:true});
+  }
+  fontT(22,true); ctx.fillStyle='#2a5db0';
+  if(Math.sin(T*4)>-0.3) ctx.fillText('Druk op SPATIE om nog een keer te spelen!',W/2,H-16);
+}
+
+/* ============================ LOOP ============================ */
+let last=0;
+function frame(ts){
+  const dt=Math.min(0.05,(ts-last)/1000||0.016); last=ts;
+  update(dt);
+  ctx.clearRect(0,0,W,H);
+  if(state==='title') scnTitle();
+  else if(state==='play') scnPlay();
+  else if(state==='build') scnBuild();
+  else if(state==='final') scnFinal();
+  else if(state==='credits') scnCredits();
+  requestAnimationFrame(frame);
+}
+playTune('titel');   /* start zodra er geklikt/gedrukt wordt */
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
